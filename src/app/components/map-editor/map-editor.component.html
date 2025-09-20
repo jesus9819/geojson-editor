@@ -1,0 +1,63 @@
+<div class="toolbar">
+  <label for="fileInput">Importar archivo</label>
+  <input
+    id="fileInput"
+    type="file"
+    accept=".json,.geojson"
+    (change)="onImportFile($event)"
+  />
+
+  <button (click)="onSaveLocal()">Guardar</button>
+  <button (click)="onExport()">Exportar</button>
+  <button (click)="onClearAll()">Limpiar</button>
+
+  <span class="import-msg" *ngIf="importMessage()">{{ importMessage() }}</span>
+</div>
+
+<div class="layout">
+  <div id="map"></div>
+
+  <div class="panel">
+    <h3>Editar punto</h3>
+
+    <div *ngIf="store.selected(); else empty">
+      <label for="nameInput">Nombre</label>
+      <input
+        id="nameInput"
+        [(ngModel)]="name"
+        placeholder="Nombre"
+      />
+
+      <label for="catInput">Categoría</label>
+      <input
+        id="catInput"
+        [(ngModel)]="category"
+        placeholder="Categoría"
+      />
+
+      <div class="actions">
+        <button (click)="onSaveProps()">Actualizar</button>
+        <button (click)="onDeleteSelected()">Eliminar</button>
+      </div>
+    </div>
+
+    <ng-template #empty>
+      <p>Selecciona un punto o haz clic en el mapa para agregar uno nuevo.</p>
+    </ng-template>
+
+    <h4>Resumen importación</h4>
+<div *ngIf="store.importSummary() as s; else noSummary">
+  <p>Importadas {{ s.imported }} / Descartadas {{ s.discarded }}</p>
+  <ul>
+    <li *ngFor="let item of s.reasons | keyvalue">
+      {{ item.key }}: {{ item.value }}
+    </li>
+  </ul>
+</div>
+    <ng-template #noSummary><p>—</p></ng-template>
+  </div>
+</div>
+
+<footer class="attr">
+  © Map data: OpenStreetMap contributors — Raster tiles
+</footer>
