@@ -1,5 +1,5 @@
 import { Component, OnDestroy, OnInit, effect, signal } from '@angular/core';
-import maplibregl, { Map, LngLatLike, MapMouseEvent } from 'maplibre-gl';
+import maplibregl, { Map, LngLatLike, MapMouseEvent, LngLatBoundsLike } from 'maplibre-gl';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { EditorStore } from '../../store/editor.store';
@@ -18,12 +18,17 @@ export class MapEditorComponent implements OnInit, OnDestroy {
   name = ''; category = '';
   importMessage = signal<string>('');
 
-  constructor(public store: EditorStore, private gj: GeoJsonService) {
-    effect(() => {
-      const src = this.map?.getSource('pois') as any;
-      if (src) src.setData(this.store.asCollection());
-    });
-  }
+constructor(public store: EditorStore, private gj: GeoJsonService) {
+  effect(() => {
+    // Fuerza la dependencia al signal:
+    const _ = this.store.features();   // <- leer el signal hace reactivo el effect
+
+    const src = this.map?.getSource('pois') as any;
+    if (src) {
+      src.setData(this.store.asCollection());
+    }
+  });
+}
 
   ngOnInit(): void {
     this.store.loadFromLocalStorage();
@@ -94,19 +99,32 @@ export class MapEditorComponent implements OnInit, OnDestroy {
   onSaveProps(): void { this.store.updateSelected({ name: this.name, category: this.category }); }
   onDeleteSelected(): void { this.store.deleteSelected(); this.name = ''; this.category = ''; }
 
-  onImportFile(ev: Event): void {
-    const input = ev.target as HTMLInputElement;
-    const file = input.files?.[0]; if (!file) return;
-    file.text().then(txt => {
-      try {
-        const { fc, summary } = this.gj.parseImport(txt);
-        this.store.setFromImport(fc, summary);
-        this.importMessage.set(`Importadas ${summary.imported} / Descartadas ${summary.discarded}`);
-      } catch (err: any) {
-        this.importMessage.set(`Error: ${err?.message ?? 'Archivo inválido'}`);
-      } finally { input.value = ''; }
-    });
-  }
+ onImportFile(ev: Event): void {
+  const input = ev.target as HTMLInputElement;
+  const file = input.files?.[0]; if (!file) return;
+
+  file.text().then(txt => {
+    try {
+      const { fc, summary } = this.gj.parseImport(txt);
+      this.store.setFromImport(fc, summary);
+      this.importMessage.set(`Importadas ${summary.imported} / Descartadas ${summary.discarded}`);
+
+      // Fit bounds a los puntos importados
+      const bounds = new maplibregl.LngLatBounds();
+      for (const ft of fc.features) {
+        const c = ft.geometry.coordinates;
+        bounds.extend(c as [number, number]);
+      }
+      if (!bounds.isEmpty()) {
+        this.map?.fitBounds(bounds as LngLatBoundsLike, { padding: 60 });
+      }
+    } catch (err: any) {
+      this.importMessage.set(`Error: ${err?.message ?? 'Archivo inválido'}`);
+    } finally {
+      input.value = '';
+    }
+  });
+}
 
   onExport(): void {
     const blob = this.gj.toBlob(this.store.asCollection());
