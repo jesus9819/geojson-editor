@@ -11,7 +11,7 @@ import { PoiFeature } from '../../models/geojson';
   standalone: true,
   imports: [CommonModule, FormsModule],
   templateUrl: './map-editor.component.html',
-  styleUrls: ['./map-editor.component.css']
+  styleUrls: ['./map-editor.component.scss']
 })
 export class MapEditorComponent implements OnInit, OnDestroy {
   private map?: Map;
