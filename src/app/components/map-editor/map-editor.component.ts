@@ -1,15 +1,11 @@
-import { Component, OnDestroy, OnInit, effect, signal, computed } from '@angular/core';
+// src/app/components/map-editor/map-editor.component.ts
+import { Component, OnDestroy, OnInit, effect, signal } from '@angular/core';
 import maplibregl, { Map, LngLatLike, MapMouseEvent, LngLatBoundsLike } from 'maplibre-gl';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { EditorStore } from '../../store/editor.store';
 import { GeoJsonService } from '../../services/geojson.service';
 import { PoiFeature } from '../../models/geojson';
-
-type Cat =
-  | 'park' | 'landmark' | 'square' | 'viewpoint'
-  | 'mall' | 'stadium' | 'station' | 'bus_terminal'
-  | 'airport' | 'misc';
 
 @Component({
   selector: 'app-map-editor',
@@ -21,50 +17,50 @@ type Cat =
 export class MapEditorComponent implements OnInit, OnDestroy {
   private map?: Map;
 
-  // form bindings
+  // bindings formulario
   name = '';
   category = '';
-
-  // mensajes breves
   importMessage = signal<string>('');
 
-  // Totales calculados para el header: PROCESADAS = importadas + descartadas
-  processedTotal = computed(() => {
-    const s = this.store.importSummary();
-    return s ? s.imported + s.discarded : 0;
-  });
-  discardedTotal = computed(() => this.store.importSummary()?.discarded ?? 0);
-
-  // Colores por categoría (leyenda y estilo del mapa)
-  readonly categoryColors: Record<Cat, string> = {
-    park:        '#22c55e',
-    landmark:    '#f59e0b',
-    square:      '#fbbf24',
-    viewpoint:   '#60a5fa',
-    mall:        '#a78bfa',
-    stadium:     '#22c55e',
-    station:     '#0ea5e9',
-    bus_terminal:'#ef4444',
-    airport:     '#0284c7',
-    misc:        '#3b82f6',
-  };
+  // >>> Contadores que usa el template (procesadas y descartadas)
+  processedTotal = signal<number>(0);
+  discardedTotal = signal<number>(0);
 
   constructor(public store: EditorStore, private gj: GeoJsonService) {
-    // Redibuja capa de válidos al cambiar el store
+    // Al cambiar la lista de features, refresca la fuente del mapa
     effect(() => {
-      void this.store.features(); // dependencia
+      const _ = this.store.features(); // dependencia
       const src = this.map?.getSource('pois') as any;
       if (src) src.setData(this.store.asCollection());
+    });
+
+    // Mantén sincronizados los contadores para el header/panel
+    effect(() => {
+      const summary = this.store.importSummary(); // {imported, discarded, reasons} | null
+      if (summary) {
+        // Cuando se importó un archivo recientemente
+        this.processedTotal.set(summary.imported + summary.discarded);
+        this.discardedTotal.set(summary.discarded);
+      } else {
+        // Caso auto-restore inicial o edición manual sin import reciente
+        const count = this.store.features().length;
+        this.processedTotal.set(count);
+        this.discardedTotal.set(0);
+      }
     });
   }
 
   ngOnInit(): void {
+    // Auto-restore antes de montar el mapa
     this.store.loadFromLocalStorage();
     this.initMap();
   }
-  ngOnDestroy(): void { this.map?.remove(); }
 
-  // ------------ MAPA ------------
+  ngOnDestroy(): void {
+    this.map?.remove();
+  }
+
+  // ---------------- Mapa ----------------
   private initMap(): void {
     this.map = new maplibregl.Map({
       container: 'map',
@@ -80,36 +76,20 @@ export class MapEditorComponent implements OnInit, OnDestroy {
         },
         layers: [{ id: 'osm', type: 'raster', source: 'osm' }],
       } as any,
-      center: [-70.65, -33.45] as LngLatLike,
+      center: [-70.65, -33.45] as LngLatLike, // Santiago
       zoom: 11,
     });
 
     this.map.addControl(new maplibregl.NavigationControl(), 'top-right');
 
     this.map.on('load', () => {
-      // source de válidos
+      // Fuente SOLO de puntos válidos
       this.map!.addSource('pois', {
         type: 'geojson',
-        data: { type: 'FeatureCollection', features: [] },
+        data: this.store.asCollection(),
       } as any);
 
-      // expresión de color por categoría
-      const colorExpr: any[] = [
-        'match',
-        ['get', 'category'],
-        'park', this.categoryColors.park,
-        'landmark', this.categoryColors.landmark,
-        'square', this.categoryColors.square,
-        'viewpoint', this.categoryColors.viewpoint,
-        'mall', this.categoryColors.mall,
-        'stadium', this.categoryColors.stadium,
-        'station', this.categoryColors.station,
-        'bus_terminal', this.categoryColors.bus_terminal,
-        'airport', this.categoryColors.airport,
-        /* default */ this.categoryColors.misc,
-      ];
-
-      // círculos válidos
+      // Círculos de los POI válidos
       this.map!.addLayer({
         id: 'pois-circle',
         type: 'circle',
@@ -117,37 +97,31 @@ export class MapEditorComponent implements OnInit, OnDestroy {
         paint: {
           'circle-radius': 8,
           'circle-stroke-width': 2,
-          'circle-stroke-color': '#111827',
-          'circle-color': colorExpr as any,
+          'circle-stroke-color': '#000',
+          'circle-color': [
+            'match',
+            ['get', 'category'],
+            'park', '#16a34a',
+            'landmark', '#eab308',
+            'school', '#2563eb',
+            'hospital', '#ef4444',
+            'square', '#f59e0b',
+            'viewpoint', '#a78bfa',
+            'mall', '#fbbf24',
+            'station', '#0ea5e9',
+            'stadium', '#22c55e',
+            'bus_terminal', '#ef4444',
+            'airport', '#2563eb',
+            /* default */ '#3b82f6',
+          ],
         },
       });
 
-      // halo al pasar el mouse
-      this.map!.addLayer({
-        id: 'pois-halo',
-        type: 'circle',
-        source: 'pois',
-        paint: {
-          'circle-radius': 14,
-          'circle-color': '#000000',
-          'circle-opacity': 0.08,
-        },
-        filter: ['==', ['id'], '___none___'],
-      });
-
-      // interacciones
-      this.map!.on('mousemove', 'pois-circle', e => {
-        const id = e.features?.[0]?.id ?? null;
-        this.map!.getCanvas().style.cursor = 'pointer';
-        this.map!.setFilter('pois-halo', ['==', ['id'], id]);
-      });
-      this.map!.on('mouseleave', 'pois-circle', () => {
-        this.map!.getCanvas().style.cursor = '';
-        this.map!.setFilter('pois-halo', ['==', ['id'], '___none___']);
-      });
-
+      // Interacciones
       this.map!.on('click', (e: MapMouseEvent) => this.onMapClick(e));
       this.map!.on('click', 'pois-circle', (e: any) => this.onPoiClick(e));
+      this.map!.on('mousemove', 'pois-circle', () => (this.map!.getCanvas().style.cursor = 'pointer'));
+      this.map!.on('mouseleave', 'pois-circle', () => (this.map!.getCanvas().style.cursor = 'default'));
     });
   }
 
@@ -164,9 +138,10 @@ export class MapEditorComponent implements OnInit, OnDestroy {
   }
 
   private onPoiClick(e: any): void {
-    const feat = e?.features?.[0]; if (!feat) return;
+    const feat = e?.features?.[0];
+    if (!feat) return;
     const [lng, lat] = feat.geometry.coordinates as [number, number];
-    const idx = this.store.features().findIndex(f => {
+    const idx = this.store.features().findIndex((f) => {
       const [L, A] = f.geometry.coordinates;
       return L === lng && A === lat;
     });
@@ -175,36 +150,51 @@ export class MapEditorComponent implements OnInit, OnDestroy {
     e.originalEvent?.stopPropagation?.();
   }
 
-  // ------------ Form / acciones ------------
+  // ---------------- Form / acciones ----------------
   syncForm(): void {
     const sel = this.store.selected();
     this.name = sel?.properties.name ?? '';
     this.category = sel?.properties.category ?? '';
   }
-  onSaveProps(): void { this.store.updateSelected({ name: this.name, category: this.category }); }
-  onDeleteSelected(): void { this.store.deleteSelected(); this.name = ''; this.category = ''; }
 
-  // Importar (solo válidos se guardan; inválidos solo cuentan)
+  onSaveProps(): void {
+    this.store.updateSelected({ name: this.name, category: this.category });
+  }
+
+  onDeleteSelected(): void {
+    this.store.deleteSelected();
+    this.name = '';
+    this.category = '';
+  }
+
   onImportFile(ev: Event): void {
     const input = ev.target as HTMLInputElement;
-    const file = input.files?.[0]; if (!file) return;
+    const file = input.files?.[0];
+    if (!file) return;
 
-    file.text().then(txt => {
+    file.text().then((txt) => {
       try {
         const { fc, summary } = this.gj.parseImport(txt);
+
+        // Válidos -> store (y por el effect se dibujan y se actualizan contadores)
         this.store.setFromImport(fc, summary);
-        // centra a los válidos
+
+        this.importMessage.set(`Importadas ${summary.imported} / Descartadas ${summary.discarded}`);
+
+        // centrar el mapa a los válidos si existen
         if (fc.features.length) {
-          const b = new maplibregl.LngLatBounds();
-          for (const ft of fc.features) b.extend(ft.geometry.coordinates as [number, number]);
-          if (!b.isEmpty()) this.map?.fitBounds(b as LngLatBoundsLike, { padding: 60 });
+          const bounds = new maplibregl.LngLatBounds();
+          for (const ft of fc.features) {
+            bounds.extend(ft.geometry.coordinates as [number, number]);
+          }
+          if (!bounds.isEmpty()) {
+            this.map?.fitBounds(bounds as LngLatBoundsLike, { padding: 60 });
+          }
         }
-        this.importMessage.set(`Procesadas ${summary.imported + summary.discarded} • Importadas ${summary.imported} • Descartadas ${summary.discarded}`);
       } catch (err: any) {
         this.importMessage.set(`Error: ${err?.message ?? 'Archivo inválido'}`);
       } finally {
         input.value = '';
-        setTimeout(() => this.importMessage.set(''), 4000);
       }
     });
   }
@@ -214,8 +204,21 @@ export class MapEditorComponent implements OnInit, OnDestroy {
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = 'pois.export.geojson';
-    document.body.appendChild(a); a.click(); a.remove();
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
   }
-  onSaveLocal(): void { this.store.saveToLocalStorage(); }
-  onClearAll(): void { this.store.clear(); this.importMessage.set(''); this.name = ''; this.category = ''; }
+
+  onSaveLocal(): void {
+    this.store.saveToLocalStorage();
+  }
+
+  onClearAll(): void {
+    this.store.clear();
+    this.importMessage.set('');
+    this.name = '';
+    this.category = '';
+    this.processedTotal.set(0);
+    this.discardedTotal.set(0);
+  }
 }

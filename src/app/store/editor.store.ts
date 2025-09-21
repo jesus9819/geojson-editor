@@ -1,3 +1,4 @@
+// src/app/store/editor.store.ts
 import { Injectable, signal } from '@angular/core';
 import { PoiFeature, PoiFeatureCollection, ImportSummary } from '../models/geojson';
 
@@ -9,7 +10,10 @@ export class EditorStore {
   private _summary = signal<ImportSummary | null>(null);
   private _selectedIdx = signal<number | null>(null);
 
-  // Expuestos al componente
+  // 🚩 Evita guardar antes de cargar el estado desde localStorage
+  private _hydrated = false;
+
+  // Expuestos
   features = this._features;
   importSummary = this._summary;
 
@@ -19,9 +23,9 @@ export class EditorStore {
     return i != null && i >= 0 && i < list.length ? list[i] : null;
   }
 
-  // ----- Mutaciones -----
+  // ---------- Mutaciones ----------
   setFromImport(fc: PoiFeatureCollection, summary: ImportSummary) {
-    this._features.set(fc.features);       // << SOLO válidos
+    this._features.set(fc.features);   // SOLO válidos
     this._summary.set(summary);
     this._selectedIdx.set(null);
     this.saveToLocalStorage();
@@ -34,11 +38,13 @@ export class EditorStore {
 
   selectByIdx(i: number | null) {
     this._selectedIdx.set(i);
+    // Nota: no guardamos la selección en storage
   }
 
   updateSelected(partial: Partial<PoiFeature['properties']>) {
     const idx = this._selectedIdx();
     if (idx == null) return;
+
     this._features.update(list => {
       const copy = [...list];
       copy[idx] = {
@@ -53,6 +59,7 @@ export class EditorStore {
   deleteSelected() {
     const idx = this._selectedIdx();
     if (idx == null) return;
+
     this._features.update(list => list.filter((_, i) => i !== idx));
     this._selectedIdx.set(null);
     this.saveToLocalStorage();
@@ -62,28 +69,38 @@ export class EditorStore {
     this._features.set([]);
     this._summary.set(null);
     this._selectedIdx.set(null);
-    localStorage.removeItem(STORAGE_KEY);
+    this.saveToLocalStorage(); // solo guardará si ya está hidratado
   }
 
   asCollection(): PoiFeatureCollection {
     return { type: 'FeatureCollection', features: this._features() };
   }
 
-  // ----- Persistencia -----
+  // ---------- Persistencia ----------
   saveToLocalStorage() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(this.asCollection()));
+    // ⛔️ No sobrescribir storage antes de cargar el estado previo
+    if (!this._hydrated) return;
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(this.asCollection()));
+    } catch {
+      // Ignorar errores de quota/permiso
+    }
   }
 
   loadFromLocalStorage() {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return;
     try {
-      const parsed = JSON.parse(raw) as PoiFeatureCollection;
-      if (parsed?.type === 'FeatureCollection' && Array.isArray(parsed.features)) {
-        this._features.set(parsed.features);
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as PoiFeatureCollection;
+        if (parsed?.type === 'FeatureCollection' && Array.isArray(parsed.features)) {
+          this._features.set(parsed.features);
+        }
       }
     } catch {
-      // ignore
+      // Ignorar parseos inválidos
+    } finally {
+      // ✅ A partir de aquí ya se permite guardar
+      this._hydrated = true;
     }
   }
 }
