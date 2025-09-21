@@ -1,76 +1,89 @@
-import { Injectable, computed, signal } from '@angular/core';
+import { Injectable, signal } from '@angular/core';
 import { PoiFeature, PoiFeatureCollection, ImportSummary } from '../models/geojson';
 
-const LS_KEY = 'poi_editor_state';
+const STORAGE_KEY = 'poi_editor_state_v1';
 
 @Injectable({ providedIn: 'root' })
 export class EditorStore {
   private _features = signal<PoiFeature[]>([]);
+  private _summary = signal<ImportSummary | null>(null);
   private _selectedIdx = signal<number | null>(null);
-  private _importSummary = signal<ImportSummary | null>(null);
 
-  features = computed(() => this._features());
-  selected = computed(() => {
+  // Expuestos al componente
+  features = this._features;
+  importSummary = this._summary;
+
+  selected() {
     const i = this._selectedIdx();
-    return i === null ? null : this._features()[i] ?? null;
-  });
-  importSummary = computed(() => this._importSummary());
-
-  loadFromLocalStorage(): void {
-    const raw = localStorage.getItem(LS_KEY);
-    if (!raw) return;
-    try {
-      const fc = JSON.parse(raw) as PoiFeatureCollection;
-      if (fc?.type === 'FeatureCollection' && Array.isArray(fc.features)) {
-        this._features.set(fc.features);
-      }
-    } catch {}
+    const list = this._features();
+    return i != null && i >= 0 && i < list.length ? list[i] : null;
   }
 
-  saveToLocalStorage(): void {
-    const fc: PoiFeatureCollection = { type: 'FeatureCollection', features: this._features() };
-    localStorage.setItem(LS_KEY, JSON.stringify(fc));
-  }
-
-  clear(): void {
-    this._features.set([]);
+  // ----- Mutaciones -----
+  setFromImport(fc: PoiFeatureCollection, summary: ImportSummary) {
+    this._features.set(fc.features);       // << SOLO válidos
+    this._summary.set(summary);
     this._selectedIdx.set(null);
-    this._importSummary.set(null);
-    localStorage.removeItem(LS_KEY);
+    this.saveToLocalStorage();
   }
 
-  setFromImport(fc: PoiFeatureCollection, summary: ImportSummary): void {
-    this._features.set(fc.features);
-    this._importSummary.set(summary);
-    this._selectedIdx.set(null);
-  }
-
-  addFeature(f: PoiFeature): void {
+  addFeature(f: PoiFeature) {
     this._features.update(arr => [...arr, f]);
+    this.saveToLocalStorage();
   }
 
-  selectByIdx(i: number | null): void {
+  selectByIdx(i: number | null) {
     this._selectedIdx.set(i);
   }
 
-  updateSelected(partial: Partial<PoiFeature['properties']>): void {
-    const i = this._selectedIdx();
-    if (i === null) return;
-    this._features.update(arr => {
-      const next = [...arr];
-      next[i] = { ...next[i], properties: { ...next[i].properties, ...partial } };
-      return next;
+  updateSelected(partial: Partial<PoiFeature['properties']>) {
+    const idx = this._selectedIdx();
+    if (idx == null) return;
+    this._features.update(list => {
+      const copy = [...list];
+      copy[idx] = {
+        ...copy[idx],
+        properties: { ...copy[idx].properties, ...partial },
+      };
+      return copy;
     });
+    this.saveToLocalStorage();
   }
 
-  deleteSelected(): void {
-    const i = this._selectedIdx();
-    if (i === null) return;
-    this._features.update(arr => arr.filter((_, idx) => idx !== i));
+  deleteSelected() {
+    const idx = this._selectedIdx();
+    if (idx == null) return;
+    this._features.update(list => list.filter((_, i) => i !== idx));
     this._selectedIdx.set(null);
+    this.saveToLocalStorage();
+  }
+
+  clear() {
+    this._features.set([]);
+    this._summary.set(null);
+    this._selectedIdx.set(null);
+    localStorage.removeItem(STORAGE_KEY);
   }
 
   asCollection(): PoiFeatureCollection {
     return { type: 'FeatureCollection', features: this._features() };
+  }
+
+  // ----- Persistencia -----
+  saveToLocalStorage() {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(this.asCollection()));
+  }
+
+  loadFromLocalStorage() {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return;
+    try {
+      const parsed = JSON.parse(raw) as PoiFeatureCollection;
+      if (parsed?.type === 'FeatureCollection' && Array.isArray(parsed.features)) {
+        this._features.set(parsed.features);
+      }
+    } catch {
+      // ignore
+    }
   }
 }

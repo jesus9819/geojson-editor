@@ -1,61 +1,83 @@
-<div class="toolbar">
-  <label for="fileInput">Importar archivo</label>
-  <input
-    id="fileInput"
-    type="file"
-    accept=".json,.geojson"
-    (change)="onImportFile($event)"
-  />
+<header class="topbar">
+  <div class="actions">
+    <!-- Botón Importar (input oculto) -->
+    <label class="btn btn-primary" for="fileInput" title="Importar GeoJSON">
+      <span class="ico">📥</span> Importar
+    </label>
+    <input id="fileInput" type="file" accept=".json,.geojson" (change)="onImportFile($event)" />
 
-  <button (click)="onSaveLocal()">Guardar</button>
-  <button (click)="onExport()">Exportar</button>
-  <button (click)="onClearAll()">Limpiar</button>
+    <button class="btn" (click)="onSaveLocal()" title="Guardar en LocalStorage">
+      <span class="ico">💾</span> Guardar
+    </button>
+    <button class="btn" (click)="onExport()" title="Exportar GeoJSON">
+      <span class="ico">📤</span> Exportar
+    </button>
+    <button class="btn btn-ghost" (click)="onClearAll()" title="Limpiar todo">
+      <span class="ico">🧹</span> Limpiar
+    </button>
 
-  <span class="import-msg" *ngIf="importMessage()">{{ importMessage() }}</span>
-</div>
+    <span class="hint" *ngIf="importMessage()">{{ importMessage() }}</span>
+  </div>
+
+  <div class="counters">
+    Procesadas <b>{{ processedTotal() }}</b> /
+    Descartadas <b>{{ discardedTotal() }}</b>
+  </div>
+</header>
 
 <div class="layout">
   <div id="map"></div>
 
-  <div class="panel">
+  <aside class="panel">
     <h3>Editar punto</h3>
+    <p class="muted">Selecciona un punto o haz clic en el mapa para agregar uno nuevo.</p>
 
     <div *ngIf="store.selected(); else empty">
-      <label for="nameInput">Nombre</label>
-      <input
-        id="nameInput"
-        [(ngModel)]="name"
-        placeholder="Nombre"
-      />
+      <div class="field">
+        <label for="nameInput">Nombre</label>
+        <input id="nameInput" [(ngModel)]="name" placeholder="Nombre" />
+      </div>
 
-      <label for="catInput">Categoría</label>
-      <input
-        id="catInput"
-        [(ngModel)]="category"
-        placeholder="Categoría"
-      />
+      <div class="field">
+        <label for="catInput">Categoría</label>
+        <input id="catInput" [(ngModel)]="category" placeholder="Categoría" />
+      </div>
 
-      <div class="actions">
-        <button (click)="onSaveProps()">Actualizar</button>
-        <button (click)="onDeleteSelected()">Eliminar</button>
+      <div class="row">
+        <button class="btn btn-small" (click)="onSaveProps()">Actualizar</button>
+        <button class="btn btn-small btn-danger" (click)="onDeleteSelected()">Eliminar</button>
       </div>
     </div>
-
-    <ng-template #empty>
-      <p>Selecciona un punto o haz clic en el mapa para agregar uno nuevo.</p>
-    </ng-template>
+    <ng-template #empty></ng-template>
 
     <h4>Resumen importación</h4>
-<div *ngIf="store.importSummary() as s; else noSummary">
-  <p>Importadas {{ s.imported }} / Descartadas {{ s.discarded }}</p>
-  <ul>
-    <li *ngFor="let item of s.reasons | keyvalue">
-      {{ item.key }}: {{ item.value }}
-    </li>
-  </ul>
-</div>
-    <ng-template #noSummary><p>—</p></ng-template>
-  </div>
+    <div *ngIf="store.importSummary() as s; else noSummary">
+      <p class="muted">Importadas <b>{{ s.imported }}</b> / Descartadas <b>{{ s.discarded }}</b></p>
+      <ul class="reasons">
+        <li *ngFor="let item of s.reasons | keyvalue">
+          <span class="badge bad">✖</span>
+          <span class="reason-key">{{ item.key }}</span>
+          <span class="spacer"></span>
+          <b>{{ item.value }}</b>
+        </li>
+      </ul>
+    </div>
+    <ng-template #noSummary><p class="muted">—</p></ng-template>
+
+    <h4>Leyenda</h4>
+    <ul class="legend">
+      <li><span class="dot" style="background:#22c55e"></span> park</li>
+      <li><span class="dot" style="background:#f59e0b"></span> landmark</li>
+      <li><span class="dot" style="background:#fbbf24"></span> square</li>
+      <li><span class="dot" style="background:#60a5fa"></span> viewpoint</li>
+      <li><span class="dot" style="background:#a78bfa"></span> mall</li>
+      <li><span class="dot" style="background:#22c55e"></span> stadium</li>
+      <li><span class="dot" style="background:#0ea5e9"></span> station</li>
+      <li><span class="dot" style="background:#ef4444"></span> bus_terminal</li>
+      <li><span class="dot" style="background:#0284c7"></span> airport</li>
+      <li><span class="dot" style="background:#3b82f6"></span> misc</li>
+    </ul>
+  </aside>
 </div>
 
 <footer class="attr">
