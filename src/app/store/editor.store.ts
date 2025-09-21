@@ -10,10 +10,10 @@ export class EditorStore {
   private _summary = signal<ImportSummary | null>(null);
   private _selectedIdx = signal<number | null>(null);
 
-  // 🚩 Evita guardar antes de cargar el estado desde localStorage
+  // Prevent saving to localStorage before the initial load (hydration) completes
   private _hydrated = false;
 
-  // Expuestos
+  // Exposed signals
   features = this._features;
   importSummary = this._summary;
 
@@ -23,9 +23,9 @@ export class EditorStore {
     return i != null && i >= 0 && i < list.length ? list[i] : null;
   }
 
-  // ---------- Mutaciones ----------
+  // ---------- Mutations ----------
   setFromImport(fc: PoiFeatureCollection, summary: ImportSummary) {
-    this._features.set(fc.features);   // SOLO válidos
+    this._features.set(fc.features); // valid features only
     this._summary.set(summary);
     this._selectedIdx.set(null);
     this.saveToLocalStorage();
@@ -38,7 +38,7 @@ export class EditorStore {
 
   selectByIdx(i: number | null) {
     this._selectedIdx.set(i);
-    // Nota: no guardamos la selección en storage
+    // Do not persist selection in storage
   }
 
   updateSelected(partial: Partial<PoiFeature['properties']>) {
@@ -69,21 +69,21 @@ export class EditorStore {
     this._features.set([]);
     this._summary.set(null);
     this._selectedIdx.set(null);
-    this.saveToLocalStorage(); // solo guardará si ya está hidratado
+    this.saveToLocalStorage(); // will only persist if already hydrated
   }
 
   asCollection(): PoiFeatureCollection {
     return { type: 'FeatureCollection', features: this._features() };
   }
 
-  // ---------- Persistencia ----------
+  // ---------- Persistence ----------
   saveToLocalStorage() {
-    // ⛔️ No sobrescribir storage antes de cargar el estado previo
+    // Do not overwrite storage before the initial load
     if (!this._hydrated) return;
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(this.asCollection()));
     } catch {
-      // Ignorar errores de quota/permiso
+      // Ignore quota/permission errors
     }
   }
 
@@ -97,9 +97,9 @@ export class EditorStore {
         }
       }
     } catch {
-      // Ignorar parseos inválidos
+      // Ignore invalid parses
     } finally {
-      // ✅ A partir de aquí ya se permite guardar
+      // From now on, saves are allowed
       this._hydrated = true;
     }
   }

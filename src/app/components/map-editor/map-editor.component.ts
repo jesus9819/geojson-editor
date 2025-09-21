@@ -1,4 +1,3 @@
-// src/app/components/map-editor/map-editor.component.ts
 import { Component, OnDestroy, OnInit, effect, signal } from '@angular/core';
 import maplibregl, { Map, LngLatLike, MapMouseEvent, LngLatBoundsLike } from 'maplibre-gl';
 import { CommonModule } from '@angular/common';
@@ -17,32 +16,29 @@ import { PoiFeature } from '../../models/geojson';
 export class MapEditorComponent implements OnInit, OnDestroy {
   private map?: Map;
 
-  // bindings formulario
   name = '';
   category = '';
   importMessage = signal<string>('');
 
-  // >>> Contadores que usa el template (procesadas y descartadas)
+  // Counters used by the template (processed and discarded)
   processedTotal = signal<number>(0);
   discardedTotal = signal<number>(0);
 
   constructor(public store: EditorStore, private gj: GeoJsonService) {
-    // Al cambiar la lista de features, refresca la fuente del mapa
+    // When the feature list changes, refresh the map source
     effect(() => {
-      const _ = this.store.features(); // dependencia
+      const _ = this.store.features();
       const src = this.map?.getSource('pois') as any;
       if (src) src.setData(this.store.asCollection());
     });
 
-    // Mantén sincronizados los contadores para el header/panel
+    // Keep counters in sync for the header/panel
     effect(() => {
-      const summary = this.store.importSummary(); // {imported, discarded, reasons} | null
+      const summary = this.store.importSummary();
       if (summary) {
-        // Cuando se importó un archivo recientemente
         this.processedTotal.set(summary.imported + summary.discarded);
         this.discardedTotal.set(summary.discarded);
       } else {
-        // Caso auto-restore inicial o edición manual sin import reciente
         const count = this.store.features().length;
         this.processedTotal.set(count);
         this.discardedTotal.set(0);
@@ -51,7 +47,7 @@ export class MapEditorComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
-    // Auto-restore antes de montar el mapa
+    // Auto-restore before mounting the map
     this.store.loadFromLocalStorage();
     this.initMap();
   }
@@ -60,7 +56,7 @@ export class MapEditorComponent implements OnInit, OnDestroy {
     this.map?.remove();
   }
 
-  // ---------------- Mapa ----------------
+  // Map setup
   private initMap(): void {
     this.map = new maplibregl.Map({
       container: 'map',
@@ -76,20 +72,20 @@ export class MapEditorComponent implements OnInit, OnDestroy {
         },
         layers: [{ id: 'osm', type: 'raster', source: 'osm' }],
       } as any,
-      center: [-70.65, -33.45] as LngLatLike, // Santiago
+      center: [-70.65, -33.45] as LngLatLike,
       zoom: 11,
     });
 
     this.map.addControl(new maplibregl.NavigationControl(), 'top-right');
 
     this.map.on('load', () => {
-      // Fuente SOLO de puntos válidos
+      // Source with valid points only
       this.map!.addSource('pois', {
         type: 'geojson',
         data: this.store.asCollection(),
       } as any);
 
-      // Círculos de los POI válidos
+      // Valid POIs as circles
       this.map!.addLayer({
         id: 'pois-circle',
         type: 'circle',
@@ -112,12 +108,12 @@ export class MapEditorComponent implements OnInit, OnDestroy {
             'stadium', '#22c55e',
             'bus_terminal', '#ef4444',
             'airport', '#2563eb',
-            /* default */ '#3b82f6',
+            '#3b82f6',
           ],
         },
       });
 
-      // Interacciones
+      // Interactions
       this.map!.on('click', (e: MapMouseEvent) => this.onMapClick(e));
       this.map!.on('click', 'pois-circle', (e: any) => this.onPoiClick(e));
       this.map!.on('mousemove', 'pois-circle', () => (this.map!.getCanvas().style.cursor = 'pointer'));
@@ -150,7 +146,7 @@ export class MapEditorComponent implements OnInit, OnDestroy {
     e.originalEvent?.stopPropagation?.();
   }
 
-  // ---------------- Form / acciones ----------------
+  // Form actions
   syncForm(): void {
     const sel = this.store.selected();
     this.name = sel?.properties.name ?? '';
@@ -176,12 +172,12 @@ export class MapEditorComponent implements OnInit, OnDestroy {
       try {
         const { fc, summary } = this.gj.parseImport(txt);
 
-        // Válidos -> store (y por el effect se dibujan y se actualizan contadores)
+        // Valid features -> store (the effect will render and update counters)
         this.store.setFromImport(fc, summary);
 
         this.importMessage.set(`Importadas ${summary.imported} / Descartadas ${summary.discarded}`);
 
-        // centrar el mapa a los válidos si existen
+        // Fit bounds to valid features if present
         if (fc.features.length) {
           const bounds = new maplibregl.LngLatBounds();
           for (const ft of fc.features) {

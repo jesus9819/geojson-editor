@@ -3,9 +3,9 @@ import { Injectable } from '@angular/core';
 import { PoiFeature, PoiFeatureCollection, ImportSummary, LngLat } from '../models/geojson';
 
 export interface ParseImportResult {
-  fc: PoiFeatureCollection;          // SOLO válidos (los que sí se pintan)
-  invalidFc: PoiFeatureCollection;   // inválidos con coords (para reporte si quisieras)
-  summary: ImportSummary;            // conteo importadas/descartadas + razones
+  fc: PoiFeatureCollection;        // valid features only (those rendered)
+  invalidFc: PoiFeatureCollection; // invalid but drawable features (for reporting if needed)
+  summary: ImportSummary;          // counts: imported/discarded + reasons
 }
 
 @Injectable({ providedIn: 'root' })
@@ -16,19 +16,19 @@ export class GeoJsonService {
   private isNum(v: any): v is number { return typeof v === 'number' && isFinite(v); }
   private isString(v: unknown): v is string { return typeof v === 'string' && v.trim().length > 0; }
 
-  /** Intenta extraer coords en [lon,lat] SIN validar rangos */
+  /** Try to extract coordinates as [lon, lat] WITHOUT range validation */
   private tryGetCoords(raw: any): LngLat | null {
     if (!Array.isArray(raw) || raw.length < 2) return null;
     const [a, b] = raw;
     if (!this.isNum(a) || !this.isNum(b)) return null;
-    // heurística: si a parece lon y b lat, respétalo; si no, invierte
+    // Heuristic: if a looks like lon and b like lat, keep order; otherwise, swap
     if ((this.isLon(a) && this.isLat(b)) || (!this.isLat(a) && !this.isLon(b))) {
       return [a, b];
     }
     return [b, a];
   }
 
-  /** Coords válidas en rango y formato */
+  /** Ensure coordinates are valid in range and format [lon, lat] */
   private normalizeCoordsStrict(raw: any): LngLat | null {
     const c = this.tryGetCoords(raw);
     if (!c) return null;
@@ -37,14 +37,12 @@ export class GeoJsonService {
   }
 
   /**
-   * Valida un feature de forma ESTRICTA:
-   * - Debe ser Feature con geometry Point
-   * - Debe tener coordinates válidas en rango
-   * - Debe tener properties con name y category como strings no vacíos
+   * Strictly validate a feature:
+   * - Must be a Feature with Point geometry
+   * - Must have in-range coordinates
+   * - Must have properties with non-empty string name and category
    */
-  private validateFeatureStrict(raw: any):
-    | PoiFeature
-    | { reason: string } {
+  private validateFeatureStrict(raw: any): PoiFeature | { reason: string } {
     if (!raw || raw.type !== 'Feature') return { reason: 'not_feature' };
 
     const g = raw.geometry;
@@ -59,7 +57,7 @@ export class GeoJsonService {
     if (!this.isString(props.name)) return { reason: 'missing_name' };
     if (!this.isString(props.category)) return { reason: 'missing_category' };
 
-    // si además quieres validar tipos extra, hazlo aquí
+    // Place for extra property validations if needed
 
     return {
       type: 'Feature',
@@ -69,18 +67,18 @@ export class GeoJsonService {
   }
 
   /**
-   * Parsea el texto:
-   *  - `fc.features` contiene SOLO válidos (lo que se pinta).
-   *  - `invalidFc.features` contiene inválidos "dibujables" para un posible reporte (NO se pintan).
-   *  - `summary` trae importadas/descartadas y conteo por razón.
+   * Parse text into collections:
+   *  - `fc.features` contains ONLY valid features (those rendered).
+   *  - `invalidFc.features` contains invalid but drawable features (NOT rendered, for reporting/UI tables).
+   *  - `summary` returns imported/discarded totals and reason counts.
    */
   parseImport(text: string): ParseImportResult {
     let json: any;
     try { json = JSON.parse(text); }
-    catch { throw new Error('El archivo no es un JSON válido'); }
+    catch { throw new Error('The file is not valid JSON'); }
 
     if (json?.type !== 'FeatureCollection' || !Array.isArray(json.features)) {
-      throw new Error('Se espera un FeatureCollection con un arreglo "features"');
+      throw new Error('A FeatureCollection with an array "features" is required');
     }
 
     const reasons: Record<string, number> = {};
@@ -96,7 +94,7 @@ export class GeoJsonService {
         const reason = (res as any).reason ?? 'unknown';
         reasons[reason] = (reasons[reason] ?? 0) + 1;
 
-        // para visual/reportes si alguna vez quisieras marcarlos en una tabla
+        // If needed for reporting, try to keep a drawable point for invalid features
         const coords =
           this.tryGetCoords(f?.geometry?.coordinates) ??
           this.tryGetCoords(f?.coordinates) ??

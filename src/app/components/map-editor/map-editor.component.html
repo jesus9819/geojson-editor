@@ -1,27 +1,26 @@
 <header class="topbar">
   <div class="actions">
-    <!-- Botón Importar (input oculto) -->
-    <label class="btn btn-primary" for="fileInput" title="Importar GeoJSON">
-      <span class="ico">📥</span> Importar
+    <label class="btn btn-primary" for="fileInput" title="Import GeoJSON">
+      <span class="ico">📥</span> Import
     </label>
     <input id="fileInput" type="file" accept=".json,.geojson" (change)="onImportFile($event)" />
 
-    <button class="btn" (click)="onSaveLocal()" title="Guardar en LocalStorage">
-      <span class="ico">💾</span> Guardar
+    <button class="btn" (click)="onSaveLocal()" title="Save to LocalStorage">
+      <span class="ico">💾</span> Save
     </button>
-    <button class="btn" (click)="onExport()" title="Exportar GeoJSON">
-      <span class="ico">📤</span> Exportar
+    <button class="btn" (click)="onExport()" title="Export GeoJSON">
+      <span class="ico">📤</span> Export
     </button>
-    <button class="btn btn-ghost" (click)="onClearAll()" title="Limpiar todo">
-      <span class="ico">🧹</span> Limpiar
+    <button class="btn btn-ghost" (click)="onClearAll()" title="Clear all">
+      <span class="ico">🧹</span> Clear
     </button>
 
     <span class="hint" *ngIf="importMessage()">{{ importMessage() }}</span>
   </div>
 
   <div class="counters">
-    Procesadas <b>{{ processedTotal() }}</b> /
-    Descartadas <b>{{ discardedTotal() }}</b>
+    Processed <b>{{ processedTotal() }}</b> /
+    Discarded <b>{{ discardedTotal() }}</b>
   </div>
 </header>
 
@@ -29,30 +28,30 @@
   <div id="map"></div>
 
   <aside class="panel">
-    <h3>Editar punto</h3>
-    <p class="muted">Selecciona un punto o haz clic en el mapa para agregar uno nuevo.</p>
+    <h3>Edit point</h3>
+    <p class="muted">Select a point or click on the map to add a new one.</p>
 
     <div *ngIf="store.selected(); else empty">
       <div class="field">
-        <label for="nameInput">Nombre</label>
-        <input id="nameInput" [(ngModel)]="name" placeholder="Nombre" />
+        <label for="nameInput">Name</label>
+        <input id="nameInput" [(ngModel)]="name" placeholder="Name" />
       </div>
 
       <div class="field">
-        <label for="catInput">Categoría</label>
-        <input id="catInput" [(ngModel)]="category" placeholder="Categoría" />
+        <label for="catInput">Category</label>
+        <input id="catInput" [(ngModel)]="category" placeholder="Category" />
       </div>
 
       <div class="row">
-        <button class="btn btn-small" (click)="onSaveProps()">Actualizar</button>
-        <button class="btn btn-small btn-danger" (click)="onDeleteSelected()">Eliminar</button>
+        <button class="btn btn-small" (click)="onSaveProps()">Update</button>
+        <button class="btn btn-small btn-danger" (click)="onDeleteSelected()">Delete</button>
       </div>
     </div>
     <ng-template #empty></ng-template>
 
-    <h4>Resumen importación</h4>
+    <h4>Import summary</h4>
     <div *ngIf="store.importSummary() as s; else noSummary">
-      <p class="muted">Importadas <b>{{ s.imported }}</b> / Descartadas <b>{{ s.discarded }}</b></p>
+      <p class="muted">Imported <b>{{ s.imported }}</b> / Discarded <b>{{ s.discarded }}</b></p>
       <ul class="reasons">
         <li *ngFor="let item of s.reasons | keyvalue">
           <span class="badge bad">✖</span>
@@ -64,7 +63,7 @@
     </div>
     <ng-template #noSummary><p class="muted">—</p></ng-template>
 
-    <h4>Leyenda</h4>
+    <h4>Legend</h4>
     <ul class="legend">
       <li><span class="dot" style="background:#22c55e"></span> park</li>
       <li><span class="dot" style="background:#f59e0b"></span> landmark</li>
