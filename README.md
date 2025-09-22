@@ -5,11 +5,8 @@ Angular application to visualize and edit Points of Interest (POI) on a map usin
 ## Branch
 The main development branch is **`dev`**. Please use this branch for setup, commits, and testing.
 
-## Requirements
-- Node.js >= 18
-- Angular CLI >= 17
+To start a local development server, run:
 
-## Installation
 ```bash
 npm install
 ```
