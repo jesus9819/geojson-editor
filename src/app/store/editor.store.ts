@@ -1,4 +1,3 @@
-// src/app/store/editor.store.ts
 import { Injectable, signal } from '@angular/core';
 import { PoiFeature, PoiFeatureCollection, ImportSummary } from '../models/geojson';
 
@@ -10,7 +9,7 @@ export class EditorStore {
   private _summary = signal<ImportSummary | null>(null);
   private _selectedIdx = signal<number | null>(null);
 
-  // Prevent saving to localStorage before the initial load (hydration) completes
+  // Avoid saving before initial hydration
   private _hydrated = false;
 
   // Exposed signals
@@ -23,9 +22,9 @@ export class EditorStore {
     return i != null && i >= 0 && i < list.length ? list[i] : null;
   }
 
-  // ---------- Mutations ----------
+  // ---------- mutations ----------
   setFromImport(fc: PoiFeatureCollection, summary: ImportSummary) {
-    this._features.set(fc.features); // valid features only
+    this._features.set(fc.features);   // only valid features
     this._summary.set(summary);
     this._selectedIdx.set(null);
     this.saveToLocalStorage();
@@ -38,7 +37,6 @@ export class EditorStore {
 
   selectByIdx(i: number | null) {
     this._selectedIdx.set(i);
-    // Do not persist selection in storage
   }
 
   updateSelected(partial: Partial<PoiFeature['properties']>) {
@@ -50,6 +48,22 @@ export class EditorStore {
       copy[idx] = {
         ...copy[idx],
         properties: { ...copy[idx].properties, ...partial },
+      };
+      return copy;
+    });
+    this.saveToLocalStorage();
+  }
+
+  /** Update coordinates of the currently selected feature. */
+  updateSelectedCoords(coords: [number, number]) {
+    const idx = this._selectedIdx();
+    if (idx == null) return;
+
+    this._features.update(list => {
+      const copy = [...list];
+      copy[idx] = {
+        ...copy[idx],
+        geometry: { ...copy[idx].geometry, coordinates: coords },
       };
       return copy;
     });
@@ -69,21 +83,21 @@ export class EditorStore {
     this._features.set([]);
     this._summary.set(null);
     this._selectedIdx.set(null);
-    this.saveToLocalStorage(); // will only persist if already hydrated
+    this.saveToLocalStorage(); // will only write if hydrated
   }
 
   asCollection(): PoiFeatureCollection {
     return { type: 'FeatureCollection', features: this._features() };
   }
 
-  // ---------- Persistence ----------
+  // ---------- persistence ----------
   saveToLocalStorage() {
-    // Do not overwrite storage before the initial load
+    // don't overwrite storage before initial load
     if (!this._hydrated) return;
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(this.asCollection()));
     } catch {
-      // Ignore quota/permission errors
+      // ignore quota/permission errors
     }
   }
 
@@ -97,9 +111,9 @@ export class EditorStore {
         }
       }
     } catch {
-      // Ignore invalid parses
+      // ignore invalid parses
     } finally {
-      // From now on, saves are allowed
+      // from now on we are allowed to save
       this._hydrated = true;
     }
   }

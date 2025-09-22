@@ -6,6 +6,9 @@ import { EditorStore } from '../../store/editor.store';
 import { GeoJsonService } from '../../services/geojson.service';
 import { PoiFeature } from '../../models/geojson';
 
+type IndexedPoi = PoiFeature & { properties: PoiFeature['properties'] & { _idx: number } };
+type IndexedFC = { type: 'FeatureCollection'; features: IndexedPoi[] };
+
 @Component({
   selector: 'app-map-editor',
   standalone: true,
@@ -20,19 +23,23 @@ export class MapEditorComponent implements OnInit, OnDestroy {
   category = '';
   importMessage = signal<string>('');
 
-  // Counters used by the template (processed and discarded)
+  // Header counters
   processedTotal = signal<number>(0);
   discardedTotal = signal<number>(0);
 
+  // interaction flags
+  private dragging = false;
+  private suppressAdd = false;
+
   constructor(public store: EditorStore, private gj: GeoJsonService) {
-    // When the feature list changes, refresh the map source
+    // Refresh map source whenever the feature list changes
     effect(() => {
       const _ = this.store.features();
       const src = this.map?.getSource('pois') as any;
-      if (src) src.setData(this.store.asCollection());
+      if (src) src.setData(this.buildIndexedFC());
     });
 
-    // Keep counters in sync for the header/panel
+    // Keep header counters in sync
     effect(() => {
       const summary = this.store.importSummary();
       if (summary) {
@@ -56,7 +63,36 @@ export class MapEditorComponent implements OnInit, OnDestroy {
     this.map?.remove();
   }
 
-  // Map setup
+  // ---------- helpers ----------
+
+  /** Build a FeatureCollection injecting `_idx` into properties to map back to store indices. */
+  private buildIndexedFC(): IndexedFC {
+    const list = this.store.features();
+    return {
+      type: 'FeatureCollection',
+      features: list.map((f, i) => ({
+        ...f,
+        properties: { ...(f.properties ?? {}), _idx: i },
+      })),
+    };
+    }
+
+  /** Find a feature close to the click position (pixel tolerance). Returns store index or null. */
+  private findFeatureNear(e: MapMouseEvent, tolerancePx = 10): number | null {
+    if (!this.map) return null;
+    const list = this.store.features();
+    for (let i = 0; i < list.length; i++) {
+      const [lng, lat] = list[i].geometry.coordinates as [number, number];
+      const p = this.map.project({ lng, lat });
+      const dx = p.x - e.point.x;
+      const dy = p.y - e.point.y;
+      if (dx * dx + dy * dy <= tolerancePx * tolerancePx) return i;
+    }
+    return null;
+  }
+
+  // ---------- map ----------
+
   private initMap(): void {
     this.map = new maplibregl.Map({
       container: 'map',
@@ -77,12 +113,14 @@ export class MapEditorComponent implements OnInit, OnDestroy {
     });
 
     this.map.addControl(new maplibregl.NavigationControl(), 'top-right');
+    // Prevent double-click zoom (it conflicts with editing)
+    this.map.doubleClickZoom.disable();
 
     this.map.on('load', () => {
-      // Source with valid points only
+      // Source with indexed features
       this.map!.addSource('pois', {
         type: 'geojson',
-        data: this.store.asCollection(),
+        data: this.buildIndexedFC(),
       } as any);
 
       // Valid POIs as circles
@@ -108,20 +146,80 @@ export class MapEditorComponent implements OnInit, OnDestroy {
             'stadium', '#22c55e',
             'bus_terminal', '#ef4444',
             'airport', '#2563eb',
-            '#3b82f6',
+            /* default */ '#3b82f6',
           ],
         },
       });
 
-      // Interactions
+      // Map click: create unless a nearby point exists (then select)
       this.map!.on('click', (e: MapMouseEvent) => this.onMapClick(e));
-      this.map!.on('click', 'pois-circle', (e: any) => this.onPoiClick(e));
+
+      // Click on point: select via _idx
+      this.map!.on('click', 'pois-circle', (e: any) => {
+        const feat = e?.features?.[0];
+        if (!feat) return;
+        this.suppressAdd = true;
+        const idx = feat.properties?._idx;
+        if (typeof idx === 'number') {
+          this.store.selectByIdx(idx);
+          this.syncForm();
+        }
+        setTimeout(() => (this.suppressAdd = false), 0);
+      });
+
+      // Drag to move a point
+      this.map!.on('mousedown', 'pois-circle', (e: any) => {
+        const feat = e?.features?.[0];
+        if (!feat) return;
+        const idx = feat.properties?._idx;
+        if (typeof idx !== 'number') return;
+
+        this.store.selectByIdx(idx);
+        this.syncForm();
+
+        this.suppressAdd = true;
+        this.map!.dragPan.disable();
+        this.dragging = true;
+
+        this.map!.on('mousemove', this.onDragMove);
+        this.map!.once('mouseup', this.onDragEnd);
+        this.map!.once('mouseout', this.onDragEnd);
+      });
+
       this.map!.on('mousemove', 'pois-circle', () => (this.map!.getCanvas().style.cursor = 'pointer'));
       this.map!.on('mouseleave', 'pois-circle', () => (this.map!.getCanvas().style.cursor = 'default'));
     });
   }
 
+  private onDragMove = (e: MapMouseEvent) => {
+    if (!this.dragging) return;
+    const coords: [number, number] = [e.lngLat.lng, e.lngLat.lat];
+    this.store.updateSelectedCoords(coords);
+  };
+
+  private onDragEnd = () => {
+    if (!this.dragging) return;
+    this.dragging = false;
+    this.map?.off('mousemove', this.onDragMove);
+    this.map?.dragPan.enable();
+    setTimeout(() => (this.suppressAdd = false), 0);
+  };
+
   private onMapClick(e: MapMouseEvent): void {
+    if (this.dragging || this.suppressAdd) {
+      this.suppressAdd = false;
+      return;
+    }
+
+    // If there is a point near the click, select it instead of creating a new one
+    const nearIdx = this.findFeatureNear(e, 10);
+    if (nearIdx != null) {
+      this.store.selectByIdx(nearIdx);
+      this.syncForm();
+      return;
+    }
+
+    // Create new point
     const coords = [e.lngLat.lng, e.lngLat.lat] as [number, number];
     const f: PoiFeature = {
       type: 'Feature',
@@ -133,21 +231,7 @@ export class MapEditorComponent implements OnInit, OnDestroy {
     this.syncForm();
   }
 
-  private onPoiClick(e: any): void {
-    const feat = e?.features?.[0];
-    if (!feat) return;
-    const [lng, lat] = feat.geometry.coordinates as [number, number];
-    const idx = this.store.features().findIndex((f) => {
-      const [L, A] = f.geometry.coordinates;
-      return L === lng && A === lat;
-    });
-    this.store.selectByIdx(idx >= 0 ? idx : null);
-    this.syncForm();
-    e.originalEvent?.stopPropagation?.();
-  }
-
-  // Form actions
-  syncForm(): void {
+  private syncForm(): void {
     const sel = this.store.selected();
     this.name = sel?.properties.name ?? '';
     this.category = sel?.properties.category ?? '';
@@ -172,7 +256,7 @@ export class MapEditorComponent implements OnInit, OnDestroy {
       try {
         const { fc, summary } = this.gj.parseImport(txt);
 
-        // Valid features -> store (the effect will render and update counters)
+        // Valid features -> store (effect will render and update counters)
         this.store.setFromImport(fc, summary);
 
         this.importMessage.set(`Importadas ${summary.imported} / Descartadas ${summary.discarded}`);
