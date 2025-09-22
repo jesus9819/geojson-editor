@@ -41,6 +41,7 @@ export class MapEditorComponent implements OnInit, OnDestroy {
     effect(() => {
       const _ = this.store.features();
       this.refreshLayerWithFilters();
+      this.updateSelectedHighlight(); // keep highlight in sync when data changes
     });
 
     // Keep header counters in sync
@@ -54,6 +55,13 @@ export class MapEditorComponent implements OnInit, OnDestroy {
         this.processedTotal.set(count);
         this.discardedTotal.set(0);
       }
+    });
+
+    // Update highlight when selection changes
+    effect(() => {
+      const _ = this.store.selected();
+      this.syncForm();
+      this.updateSelectedHighlight();
     });
   }
 
@@ -114,6 +122,22 @@ export class MapEditorComponent implements OnInit, OnDestroy {
     src.setData(this.buildIndexedFCFiltered());
   }
 
+  /** Get selected index within store (by reference). */
+  private getSelectedIdx(): number {
+    const sel = this.store.selected();
+    if (!sel) return -1;
+    return this.store.features().indexOf(sel);
+  }
+
+  /** Update the highlight layer filter for the current selection. */
+  private updateSelectedHighlight(): void {
+    if (!this.map || !this.map.getLayer('pois-selected')) return;
+    const idx = this.getSelectedIdx();
+    // highlight only if the selected feature is part of the current filtered source
+    const filter: any = ['==', ['get', '_idx'], idx >= 0 ? idx : -1];
+    this.map.setFilter('pois-selected', filter);
+  }
+
   /** Find a feature near the click (pixel-based). Returns store index or null. */
   private findFeatureNear(e: MapMouseEvent, tolerancePx = 10): number | null {
     if (!this.map) return null;
@@ -159,7 +183,7 @@ export class MapEditorComponent implements OnInit, OnDestroy {
         data: this.buildIndexedFCFiltered(),
       } as any);
 
-      // Circles layer
+      // Base points
       this.map!.addLayer({
         id: 'pois-circle',
         type: 'circle',
@@ -187,6 +211,20 @@ export class MapEditorComponent implements OnInit, OnDestroy {
         },
       });
 
+      // Highlight layer (selected point focus)
+      this.map!.addLayer({
+        id: 'pois-selected',
+        type: 'circle',
+        source: 'pois',
+        filter: ['==', ['get', '_idx'], -1], // start with none
+        paint: {
+          'circle-radius': 12,
+          'circle-color': 'rgba(0, 0, 0, 0)',   // transparent fill
+          'circle-stroke-width': 4,
+          'circle-stroke-color': '#ffcc00',     // golden halo
+        },
+      });
+
       // Map click: create unless near an existing one
       this.map!.on('click', (e: MapMouseEvent) => this.onMapClick(e));
 
@@ -199,6 +237,7 @@ export class MapEditorComponent implements OnInit, OnDestroy {
         if (typeof idx === 'number') {
           this.store.selectByIdx(idx);
           this.syncForm();
+          this.updateSelectedHighlight();
         }
         setTimeout(() => (this.suppressAdd = false), 0);
       });
@@ -231,8 +270,9 @@ export class MapEditorComponent implements OnInit, OnDestroy {
     if (!this.dragging) return;
     const coords: [number, number] = [e.lngLat.lng, e.lngLat.lat];
     this.store.updateSelectedCoords(coords);
-    // keep filtered view fresh while dragging
+    // keep filtered view and highlight fresh while dragging
     this.refreshLayerWithFilters();
+    this.updateSelectedHighlight();
   };
 
   private onDragEnd = () => {
@@ -254,6 +294,7 @@ export class MapEditorComponent implements OnInit, OnDestroy {
     if (nearIdx != null) {
       this.store.selectByIdx(nearIdx);
       this.syncForm();
+      this.updateSelectedHighlight();
       return;
     }
 
@@ -270,18 +311,21 @@ export class MapEditorComponent implements OnInit, OnDestroy {
 
     // ensure it appears if current filter would hide it (we keep current filters, but data is updated)
     this.refreshLayerWithFilters();
+    this.updateSelectedHighlight();
   }
 
   // ---------- filters API (called from template) ----------
 
   applyFilters(): void {
     this.refreshLayerWithFilters();
+    this.updateSelectedHighlight();
   }
 
   clearFilters(): void {
     this.filterName = '';
     this.filterCategory = '';
     this.refreshLayerWithFilters();
+    this.updateSelectedHighlight();
   }
 
   // ---------- form / actions ----------
@@ -292,6 +336,13 @@ export class MapEditorComponent implements OnInit, OnDestroy {
     this.category = sel?.properties.category ?? '';
   }
 
+  onCancelSelection(): void {
+    this.store.selectByIdx(null);
+    this.name = '';
+    this.category = '';
+    this.updateSelectedHighlight();
+  }
+
   onSaveProps(): void {
     const sel = this.store.selected();
     if (!sel) return;
@@ -299,6 +350,7 @@ export class MapEditorComponent implements OnInit, OnDestroy {
     if (!this.confirmAction(msg)) return;
     this.store.updateSelected({ name: this.name, category: this.category });
     this.refreshLayerWithFilters();
+    this.updateSelectedHighlight();
   }
 
   onDeleteSelected(): void {
@@ -310,6 +362,7 @@ export class MapEditorComponent implements OnInit, OnDestroy {
     this.name = '';
     this.category = '';
     this.refreshLayerWithFilters();
+    this.updateSelectedHighlight();
   }
 
   onImportFile(ev: Event): void {
@@ -334,6 +387,7 @@ export class MapEditorComponent implements OnInit, OnDestroy {
 
         // Update filtered layer with fresh data
         this.refreshLayerWithFilters();
+        this.updateSelectedHighlight();
 
         // Fit bounds to valid features if present
         if (fc.features.length) {
@@ -384,5 +438,6 @@ export class MapEditorComponent implements OnInit, OnDestroy {
     this.processedTotal.set(0);
     this.discardedTotal.set(0);
     this.refreshLayerWithFilters();
+    this.updateSelectedHighlight();
   }
 }
