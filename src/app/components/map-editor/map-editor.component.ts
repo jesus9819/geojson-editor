@@ -19,27 +19,31 @@ type IndexedFC = { type: 'FeatureCollection'; features: IndexedPoi[] };
 export class MapEditorComponent implements OnInit, OnDestroy {
   private map?: Map;
 
+  // form bindings
   name = '';
   category = '';
-  importMessage = signal<string>('');
 
-  // header counters
+  // messages / counters
+  importMessage = signal<string>('');
   processedTotal = signal<number>(0);
   discardedTotal = signal<number>(0);
+
+  // filters
+  filterName = '';
+  filterCategory = '';
 
   // interaction flags
   private dragging = false;
   private suppressAdd = false;
 
   constructor(public store: EditorStore, private gj: GeoJsonService) {
-    // refresh map source whenever the feature list changes
+    // When features change, refresh source with current filters applied
     effect(() => {
       const _ = this.store.features();
-      const src = this.map?.getSource('pois') as any;
-      if (src) src.setData(this.buildIndexedFC());
+      this.refreshLayerWithFilters();
     });
 
-    // keep header counters in sync
+    // Keep header counters in sync
     effect(() => {
       const summary = this.store.importSummary();
       if (summary) {
@@ -65,13 +69,12 @@ export class MapEditorComponent implements OnInit, OnDestroy {
 
   // ---------- helpers ----------
 
-  /** Confirmation helper (single place to tweak messages/logic if needed). */
   private confirmAction(message: string): boolean {
     return window.confirm(message);
   }
 
-  /** Build a FeatureCollection injecting `_idx` into properties to map back to store indices. */
-  private buildIndexedFC(): IndexedFC {
+  /** Build FC injecting _idx for all features (full dataset). */
+  private buildIndexedFCAll(): IndexedFC {
     const list = this.store.features();
     return {
       type: 'FeatureCollection',
@@ -82,7 +85,36 @@ export class MapEditorComponent implements OnInit, OnDestroy {
     };
   }
 
-  /** Find a feature close to the click position (pixel tolerance). Returns store index or null. */
+  /** Build FC for the filtered subset, preserving original _idx. */
+  private buildIndexedFCFiltered(): IndexedFC {
+    const nameQ = (this.filterName || '').trim().toLowerCase();
+    const catQ = (this.filterCategory || '').trim();
+
+    const list = this.store.features();
+    const filtered = list
+      .map((f, i) => ({ f, i }))
+      .filter(({ f }) => {
+        const props = f.properties || ({} as any);
+        const okName = nameQ ? String(props.name || '').toLowerCase().includes(nameQ) : true;
+        const okCat = catQ ? String(props.category || '') === catQ : true;
+        return okName && okCat;
+      })
+      .map(({ f, i }) => ({
+        ...f,
+        properties: { ...(f.properties ?? {}), _idx: i },
+      }));
+
+    return { type: 'FeatureCollection', features: filtered };
+  }
+
+  /** Apply filters to the map source. */
+  private refreshLayerWithFilters(): void {
+    const src = this.map?.getSource('pois') as any;
+    if (!src) return;
+    src.setData(this.buildIndexedFCFiltered());
+  }
+
+  /** Find a feature near the click (pixel-based). Returns store index or null. */
   private findFeatureNear(e: MapMouseEvent, tolerancePx = 10): number | null {
     if (!this.map) return null;
     const list = this.store.features();
@@ -118,17 +150,16 @@ export class MapEditorComponent implements OnInit, OnDestroy {
     });
 
     this.map.addControl(new maplibregl.NavigationControl(), 'top-right');
-    // prevent double-click zoom (conflicts with editing UX)
     this.map.doubleClickZoom.disable();
 
     this.map.on('load', () => {
-      // source with indexed features
+      // Source starts with filtered (initially no filters => all)
       this.map!.addSource('pois', {
         type: 'geojson',
-        data: this.buildIndexedFC(),
+        data: this.buildIndexedFCFiltered(),
       } as any);
 
-      // valid POIs as circles
+      // Circles layer
       this.map!.addLayer({
         id: 'pois-circle',
         type: 'circle',
@@ -156,10 +187,10 @@ export class MapEditorComponent implements OnInit, OnDestroy {
         },
       });
 
-      // map click: create unless a nearby point exists (then select)
+      // Map click: create unless near an existing one
       this.map!.on('click', (e: MapMouseEvent) => this.onMapClick(e));
 
-      // click on point: select via _idx
+      // Click on point: select using _idx (works with filtered collection)
       this.map!.on('click', 'pois-circle', (e: any) => {
         const feat = e?.features?.[0];
         if (!feat) return;
@@ -172,7 +203,7 @@ export class MapEditorComponent implements OnInit, OnDestroy {
         setTimeout(() => (this.suppressAdd = false), 0);
       });
 
-      // drag to move a point (no confirm here to avoid poor UX; edit is already explicit via button)
+      // Drag to move a point
       this.map!.on('mousedown', 'pois-circle', (e: any) => {
         const feat = e?.features?.[0];
         if (!feat) return;
@@ -200,6 +231,8 @@ export class MapEditorComponent implements OnInit, OnDestroy {
     if (!this.dragging) return;
     const coords: [number, number] = [e.lngLat.lng, e.lngLat.lat];
     this.store.updateSelectedCoords(coords);
+    // keep filtered view fresh while dragging
+    this.refreshLayerWithFilters();
   };
 
   private onDragEnd = () => {
@@ -234,6 +267,21 @@ export class MapEditorComponent implements OnInit, OnDestroy {
     this.store.addFeature(f);
     this.store.selectByIdx(this.store.features().length - 1);
     this.syncForm();
+
+    // ensure it appears if current filter would hide it (we keep current filters, but data is updated)
+    this.refreshLayerWithFilters();
+  }
+
+  // ---------- filters API (called from template) ----------
+
+  applyFilters(): void {
+    this.refreshLayerWithFilters();
+  }
+
+  clearFilters(): void {
+    this.filterName = '';
+    this.filterCategory = '';
+    this.refreshLayerWithFilters();
   }
 
   // ---------- form / actions ----------
@@ -250,6 +298,7 @@ export class MapEditorComponent implements OnInit, OnDestroy {
     const msg = `Update this point?\n\nName: "${this.name || sel.properties.name}"\nCategory: "${this.category || sel.properties.category}"`;
     if (!this.confirmAction(msg)) return;
     this.store.updateSelected({ name: this.name, category: this.category });
+    this.refreshLayerWithFilters();
   }
 
   onDeleteSelected(): void {
@@ -260,6 +309,7 @@ export class MapEditorComponent implements OnInit, OnDestroy {
     this.store.deleteSelected();
     this.name = '';
     this.category = '';
+    this.refreshLayerWithFilters();
   }
 
   onImportFile(ev: Event): void {
@@ -267,7 +317,6 @@ export class MapEditorComponent implements OnInit, OnDestroy {
     const file = input.files?.[0];
     if (!file) return;
 
-    // confirm import because it replaces the current dataset with the valid subset
     const replaceMsg = `Import file "${file.name}"?\n\nCurrent points will be replaced by the valid features from the file.`;
     if (!this.confirmAction(replaceMsg)) {
       input.value = '';
@@ -283,15 +332,14 @@ export class MapEditorComponent implements OnInit, OnDestroy {
 
         this.importMessage.set(`Imported ${summary.imported} / Discarded ${summary.discarded}`);
 
+        // Update filtered layer with fresh data
+        this.refreshLayerWithFilters();
+
         // Fit bounds to valid features if present
         if (fc.features.length) {
           const bounds = new maplibregl.LngLatBounds();
-          for (const ft of fc.features) {
-            bounds.extend(ft.geometry.coordinates as [number, number]);
-          }
-          if (!bounds.isEmpty()) {
-            this.map?.fitBounds(bounds as LngLatBoundsLike, { padding: 60 });
-          }
+          for (const ft of fc.features) bounds.extend(ft.geometry.coordinates as [number, number]);
+          if (!bounds.isEmpty()) this.map?.fitBounds(bounds as LngLatBoundsLike, { padding: 60 });
         }
       } catch (err: any) {
         this.importMessage.set(`Error: ${err?.message ?? 'Invalid file'}`);
@@ -335,5 +383,6 @@ export class MapEditorComponent implements OnInit, OnDestroy {
     this.category = '';
     this.processedTotal.set(0);
     this.discardedTotal.set(0);
+    this.refreshLayerWithFilters();
   }
 }

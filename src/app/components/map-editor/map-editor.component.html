@@ -1,5 +1,6 @@
 <header class="topbar">
   <div class="actions">
+    <!-- Import (hidden input) -->
     <label class="btn btn-primary" for="fileInput" title="Import GeoJSON">
       <span class="ico">📥</span> Import
     </label>
@@ -8,9 +9,11 @@
     <button class="btn" (click)="onSaveLocal()" title="Save to LocalStorage">
       <span class="ico">💾</span> Save
     </button>
+
     <button class="btn" (click)="onExport()" title="Export GeoJSON">
       <span class="ico">📤</span> Export
     </button>
+
     <button class="btn btn-ghost" (click)="onClearAll()" title="Clear all">
       <span class="ico">🧹</span> Clear
     </button>
@@ -23,6 +26,36 @@
     Discarded <b>{{ discardedTotal() }}</b>
   </div>
 </header>
+
+<!-- Filters -->
+<section class="filters" style="padding: 8px 12px; display:flex; gap:8px; align-items:center;">
+  <input
+    class="input"
+    type="text"
+    placeholder="Search by name…"
+    [(ngModel)]="filterName"
+    (input)="applyFilters()"
+    style="flex:1; min-width: 220px;"
+  />
+
+  <select class="input" [(ngModel)]="filterCategory" (change)="applyFilters()">
+    <option value="">All categories</option>
+    <option value="park">park</option>
+    <option value="landmark">landmark</option>
+    <option value="school">school</option>
+    <option value="hospital">hospital</option>
+    <option value="square">square</option>
+    <option value="viewpoint">viewpoint</option>
+    <option value="mall">mall</option>
+    <option value="station">station</option>
+    <option value="stadium">stadium</option>
+    <option value="bus_terminal">bus_terminal</option>
+    <option value="airport">airport</option>
+    <option value="misc">misc</option>
+  </select>
+
+  <button class="btn btn-ghost" (click)="clearFilters()">Clear filters</button>
+</section>
 
 <div class="layout">
   <div id="map"></div>
@@ -65,15 +98,17 @@
 
     <h4>Legend</h4>
     <ul class="legend">
-      <li><span class="dot" style="background:#22c55e"></span> park</li>
-      <li><span class="dot" style="background:#f59e0b"></span> landmark</li>
-      <li><span class="dot" style="background:#fbbf24"></span> square</li>
-      <li><span class="dot" style="background:#60a5fa"></span> viewpoint</li>
-      <li><span class="dot" style="background:#a78bfa"></span> mall</li>
-      <li><span class="dot" style="background:#22c55e"></span> stadium</li>
+      <li><span class="dot" style="background:#16a34a"></span> park</li>
+      <li><span class="dot" style="background:#eab308"></span> landmark</li>
+      <li><span class="dot" style="background:#2563eb"></span> school</li>
+      <li><span class="dot" style="background:#ef4444"></span> hospital</li>
+      <li><span class="dot" style="background:#f59e0b"></span> square</li>
+      <li><span class="dot" style="background:#a78bfa"></span> viewpoint</li>
+      <li><span class="dot" style="background:#fbbf24"></span> mall</li>
       <li><span class="dot" style="background:#0ea5e9"></span> station</li>
+      <li><span class="dot" style="background:#22c55e"></span> stadium</li>
       <li><span class="dot" style="background:#ef4444"></span> bus_terminal</li>
-      <li><span class="dot" style="background:#0284c7"></span> airport</li>
+      <li><span class="dot" style="background:#2563eb"></span> airport</li>
       <li><span class="dot" style="background:#3b82f6"></span> misc</li>
     </ul>
   </aside>
