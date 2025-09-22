@@ -23,7 +23,7 @@ export class MapEditorComponent implements OnInit, OnDestroy {
   category = '';
   importMessage = signal<string>('');
 
-  // Header counters
+  // header counters
   processedTotal = signal<number>(0);
   discardedTotal = signal<number>(0);
 
@@ -32,14 +32,14 @@ export class MapEditorComponent implements OnInit, OnDestroy {
   private suppressAdd = false;
 
   constructor(public store: EditorStore, private gj: GeoJsonService) {
-    // Refresh map source whenever the feature list changes
+    // refresh map source whenever the feature list changes
     effect(() => {
       const _ = this.store.features();
       const src = this.map?.getSource('pois') as any;
       if (src) src.setData(this.buildIndexedFC());
     });
 
-    // Keep header counters in sync
+    // keep header counters in sync
     effect(() => {
       const summary = this.store.importSummary();
       if (summary) {
@@ -54,7 +54,7 @@ export class MapEditorComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
-    // Auto-restore before mounting the map
+    // auto-restore before mounting the map
     this.store.loadFromLocalStorage();
     this.initMap();
   }
@@ -64,6 +64,11 @@ export class MapEditorComponent implements OnInit, OnDestroy {
   }
 
   // ---------- helpers ----------
+
+  /** Confirmation helper (single place to tweak messages/logic if needed). */
+  private confirmAction(message: string): boolean {
+    return window.confirm(message);
+  }
 
   /** Build a FeatureCollection injecting `_idx` into properties to map back to store indices. */
   private buildIndexedFC(): IndexedFC {
@@ -75,7 +80,7 @@ export class MapEditorComponent implements OnInit, OnDestroy {
         properties: { ...(f.properties ?? {}), _idx: i },
       })),
     };
-    }
+  }
 
   /** Find a feature close to the click position (pixel tolerance). Returns store index or null. */
   private findFeatureNear(e: MapMouseEvent, tolerancePx = 10): number | null {
@@ -113,17 +118,17 @@ export class MapEditorComponent implements OnInit, OnDestroy {
     });
 
     this.map.addControl(new maplibregl.NavigationControl(), 'top-right');
-    // Prevent double-click zoom (it conflicts with editing)
+    // prevent double-click zoom (conflicts with editing UX)
     this.map.doubleClickZoom.disable();
 
     this.map.on('load', () => {
-      // Source with indexed features
+      // source with indexed features
       this.map!.addSource('pois', {
         type: 'geojson',
         data: this.buildIndexedFC(),
       } as any);
 
-      // Valid POIs as circles
+      // valid POIs as circles
       this.map!.addLayer({
         id: 'pois-circle',
         type: 'circle',
@@ -151,10 +156,10 @@ export class MapEditorComponent implements OnInit, OnDestroy {
         },
       });
 
-      // Map click: create unless a nearby point exists (then select)
+      // map click: create unless a nearby point exists (then select)
       this.map!.on('click', (e: MapMouseEvent) => this.onMapClick(e));
 
-      // Click on point: select via _idx
+      // click on point: select via _idx
       this.map!.on('click', 'pois-circle', (e: any) => {
         const feat = e?.features?.[0];
         if (!feat) return;
@@ -167,7 +172,7 @@ export class MapEditorComponent implements OnInit, OnDestroy {
         setTimeout(() => (this.suppressAdd = false), 0);
       });
 
-      // Drag to move a point
+      // drag to move a point (no confirm here to avoid poor UX; edit is already explicit via button)
       this.map!.on('mousedown', 'pois-circle', (e: any) => {
         const feat = e?.features?.[0];
         if (!feat) return;
@@ -211,7 +216,7 @@ export class MapEditorComponent implements OnInit, OnDestroy {
       return;
     }
 
-    // If there is a point near the click, select it instead of creating a new one
+    // if there is a point near the click, select it instead of creating a new one
     const nearIdx = this.findFeatureNear(e, 10);
     if (nearIdx != null) {
       this.store.selectByIdx(nearIdx);
@@ -219,7 +224,7 @@ export class MapEditorComponent implements OnInit, OnDestroy {
       return;
     }
 
-    // Create new point
+    // create new point
     const coords = [e.lngLat.lng, e.lngLat.lat] as [number, number];
     const f: PoiFeature = {
       type: 'Feature',
@@ -231,6 +236,8 @@ export class MapEditorComponent implements OnInit, OnDestroy {
     this.syncForm();
   }
 
+  // ---------- form / actions ----------
+
   private syncForm(): void {
     const sel = this.store.selected();
     this.name = sel?.properties.name ?? '';
@@ -238,10 +245,18 @@ export class MapEditorComponent implements OnInit, OnDestroy {
   }
 
   onSaveProps(): void {
+    const sel = this.store.selected();
+    if (!sel) return;
+    const msg = `Update this point?\n\nName: "${this.name || sel.properties.name}"\nCategory: "${this.category || sel.properties.category}"`;
+    if (!this.confirmAction(msg)) return;
     this.store.updateSelected({ name: this.name, category: this.category });
   }
 
   onDeleteSelected(): void {
+    const sel = this.store.selected();
+    if (!sel) return;
+    const msg = `Delete this point?\n\nName: "${sel.properties.name}"\nCategory: "${sel.properties.category}"`;
+    if (!this.confirmAction(msg)) return;
     this.store.deleteSelected();
     this.name = '';
     this.category = '';
@@ -252,6 +267,13 @@ export class MapEditorComponent implements OnInit, OnDestroy {
     const file = input.files?.[0];
     if (!file) return;
 
+    // confirm import because it replaces the current dataset with the valid subset
+    const replaceMsg = `Import file "${file.name}"?\n\nCurrent points will be replaced by the valid features from the file.`;
+    if (!this.confirmAction(replaceMsg)) {
+      input.value = '';
+      return;
+    }
+
     file.text().then((txt) => {
       try {
         const { fc, summary } = this.gj.parseImport(txt);
@@ -259,7 +281,7 @@ export class MapEditorComponent implements OnInit, OnDestroy {
         // Valid features -> store (effect will render and update counters)
         this.store.setFromImport(fc, summary);
 
-        this.importMessage.set(`Importadas ${summary.imported} / Descartadas ${summary.discarded}`);
+        this.importMessage.set(`Imported ${summary.imported} / Discarded ${summary.discarded}`);
 
         // Fit bounds to valid features if present
         if (fc.features.length) {
@@ -272,7 +294,7 @@ export class MapEditorComponent implements OnInit, OnDestroy {
           }
         }
       } catch (err: any) {
-        this.importMessage.set(`Error: ${err?.message ?? 'Archivo inválido'}`);
+        this.importMessage.set(`Error: ${err?.message ?? 'Invalid file'}`);
       } finally {
         input.value = '';
       }
@@ -280,6 +302,12 @@ export class MapEditorComponent implements OnInit, OnDestroy {
   }
 
   onExport(): void {
+    const count = this.store.features().length;
+    const msg = count
+      ? `Export ${count} point(s) to GeoJSON?`
+      : `Export an empty dataset to GeoJSON?`;
+    if (!this.confirmAction(msg)) return;
+
     const blob = this.gj.toBlob(this.store.asCollection());
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -290,10 +318,17 @@ export class MapEditorComponent implements OnInit, OnDestroy {
   }
 
   onSaveLocal(): void {
+    const count = this.store.features().length;
+    const msg = count
+      ? `Save ${count} point(s) to LocalStorage?`
+      : `Save empty state to LocalStorage?`;
+    if (!this.confirmAction(msg)) return;
     this.store.saveToLocalStorage();
   }
 
   onClearAll(): void {
+    const msg = `Clear all points and reset the app?\n\nThis will remove the saved state from LocalStorage.`;
+    if (!this.confirmAction(msg)) return;
     this.store.clear();
     this.importMessage.set('');
     this.name = '';
